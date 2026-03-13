@@ -13,7 +13,7 @@ cipher = Fernet(KEY)
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.bind((HOST, PORT))
 
-print("Secure Monitoring Server running on port", PORT)
+print("Monitoring server running on port", PORT)
 
 nodes = {}
 event_counts = defaultdict(int)
@@ -30,13 +30,12 @@ def receiver():
 
         try:
             decrypted = cipher.decrypt(data).decode()
-
             node, seq, ts, event, metric, value = decrypted.split("|")
 
             seq = int(seq)
             ts = int(ts)
 
-        except:
+        except Exception:
             print("Invalid packet received")
             continue
 
