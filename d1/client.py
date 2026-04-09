@@ -1,8 +1,8 @@
 import socket
+import ssl
 import time
 import psutil
 from ping3 import ping
-from cryptography.fernet import Fernet
 import uuid
 
 SERVER_IP = "127.0.0.1"
@@ -10,14 +10,18 @@ PORT = 9000
 
 NODE_ID = "node-" + str(uuid.uuid4())[:6]
 
-KEY = b'4N0zPj3C9j2mA2y7eFzQ4jYx6yXr0cZy4Yp9sL9Q6V0='
-cipher = Fernet(KEY)
-
 LATENCY_THRESHOLD = 0.25
 CPU_THRESHOLD = 60
 MEM_THRESHOLD = 75
 
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+context = ssl.create_default_context()
+context.check_hostname = False
+context.verify_mode = ssl.CERT_NONE
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+secure_sock = context.wrap_socket(sock)
+
+secure_sock.connect((SERVER_IP, PORT))
 
 seq = 0
 
@@ -37,9 +41,7 @@ def send_event(event, metric, value):
 
     msg = f"{NODE_ID}|{seq}|{ts}|{event}|{metric}|{value}"
 
-    encrypted = cipher.encrypt(msg.encode())
-
-    sock.sendto(encrypted, (SERVER_IP, PORT))
+    secure_sock.send(msg.encode())
 
 
 def heartbeat():
