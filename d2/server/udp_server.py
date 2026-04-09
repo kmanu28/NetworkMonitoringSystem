@@ -1,60 +1,61 @@
 import socket
-import threading
 import time
-from cryptography.fernet import Fernet
-from config import *
-from state import nodes, event_counts, last_seq, lock
+from state import update_state
 from database import insert_event
+from config import HOST, PORT
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.bind((HOST, PORT))
 
-cipher = Fernet(KEY)
+print("UDP monitoring server running on", PORT)
 
-print("UDP Monitoring Server Running...")
+packet_count = 0
+start_time = time.time()
+latency_samples = []
 
-
-def receiver():
-    while True:
-        data, addr = sock.recvfrom(4096)
-
-        try:
-            decrypted = cipher.decrypt(data).decode()
-            node, seq, ts, event, metric, value = decrypted.split("|")
-
-            seq = int(seq)
-            ts = int(ts)
-
-        except Exception as e:
-            print("Invalid packet:", e)
-            continue
-
-        with lock:
-            # Packet loss detection
-            if node in last_seq and seq != last_seq[node] + 1:
-                print(f"[LOSS] Packet loss from {node}")
-
-            last_seq[node] = seq
-
-            severity = EVENT_TYPES.get(event, "UNKNOWN")
-
-            nodes[node] = {
-                "ip": addr[0],
-                "last_seen": ts,
-                "event": (event, metric, value, severity),
-            }
-
-            event_counts[event] += 1
-
-            insert_event(node, ts, event, metric, value)
-
-        print(f"[RECV] {node} -> {event} ({metric}={value})")
-
-        # ACK (basic reliability)
-        sock.sendto(f"ACK|{node}|{seq}".encode(), addr)
-
-
-threading.Thread(target=receiver, daemon=True).start()
 
 while True:
-    time.sleep(1)
+
+    data, addr = sock.recvfrom(4096)
+
+    recv_time = time.time()
+
+    packet_count += 1
+
+    try:
+        msg = data.decode()
+
+        node, seq, ts, event, metric, value = msg.split("|")
+
+        ts = int(ts)
+
+        # latency calculation
+        latency = recv_time - ts
+        latency_samples.append(latency)
+
+        update_state(node, addr[0], ts, event, metric, value)
+
+        insert_event(node, event, metric, value, ts)
+
+    except Exception as e:
+        print("Invalid packet:", e)
+
+    elapsed = time.time() - start_time
+
+    if elapsed >= 10:
+
+        throughput = packet_count / elapsed
+
+        avg_latency = 0
+        if latency_samples:
+            avg_latency = sum(latency_samples) / len(latency_samples)
+
+        print("\n========== PERFORMANCE ==========")
+        print("Throughput:", round(throughput, 2), "packets/sec")
+        print("Average latency:", round(avg_latency, 4), "sec")
+        print("Packets processed:", packet_count)
+        print("=================================\n")
+
+        start_time = time.time()
+        packet_count = 0
+        latency_samples = []
